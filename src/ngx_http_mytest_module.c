@@ -192,6 +192,49 @@ static ngx_command_t ngx_http_mytest_commands[] = {
         ngx_null_command
 };
 
+/**
+ * ngx_conf_set_num_slot 官方解析num类型配置项的方法
+ * @param cf
+ * @param cmd
+ * @param conf
+ * @return 成功或失败
+    char *
+    ngx_conf_set_num_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+    {
+        // conf就是存储参数的结构体的地址，即指向ngx_http_mytest_conf_t的指针
+        char  *p = conf;
+
+        ngx_int_t        *np;
+        ngx_str_t        *value;
+        ngx_conf_post_t  *post;
+
+        // 根据ngx_command_t中的offset偏移量，可以在参数结构体中找到对应的参数成员
+        // 而对于ngx_conf_set_num_slot方法而言，存储数字的必须是ngx_int_t类型
+        np = (ngx_int_t *) (p + cmd->offset);
+
+        // 这里知道为什么要把使用ngx_conf_set_num_slot方法解析的成员在create_loc_conf等方法中初始化为NGX_CONF_UNSET，否则是会报错的
+        if (*np != NGX_CONF_UNSET) {
+            return "is duplicate";
+        }
+
+        // value指向配置文件中配置项的参数值
+        value = cf->args->elts;
+        // 将字符串的参数转为整型，并设置到create_loc_conf等方法生成的结构体的相关成员上
+        *np = ngx_atoi(value[1].data, value[1].len);
+        if (*np == NGX_ERROR) {
+            return "invalid number";
+        }
+
+        // 如果ngx_command_t中的post已经实现，那么还需要调用post->post_handler方法
+        if (cmd->post) {
+            post = cmd->post;
+            return post->post_handler(cf, post, np);
+        }
+
+        return NGX_CONF_OK;
+    }
+ * */
+
 static char* ngx_http_mytest(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_core_loc_conf_t *clcf;
