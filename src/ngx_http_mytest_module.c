@@ -76,9 +76,9 @@ static ngx_command_t ngx_http_mytest_commands[] = {
         },
         {
             ngx_string("test_str"),
-            NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+            NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,  // 配置项可以出现在http、server、location配置块中，并有且仅有1个参数
             ngx_conf_set_str_slot,
-            NGX_HTTP_LOC_CONF_OFFSET,
+            NGX_HTTP_LOC_CONF_OFFSET,               // 将配置项存储在每个配置块(http、server、location)对应的 create_loc_conf 生成的配置结构体中
             offsetof(ngx_http_mytest_conf_t, my_str),
             NULL
         },
@@ -490,6 +490,82 @@ static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
         ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "after child: null");
     }
 
+    /**
+     * http {
+            server {
+                listen       80;
+                server_name  localhost;
+
+                location / {
+                    root   html;
+                    index  index.html index.htm;
+                }
+
+                location /test {
+                    mytest;
+                    test_str apple;
+                }
+
+                test_str server80;
+                location /url1 {
+                    mytest;
+                    test_str loc1;
+                }
+
+                location /url2 {
+                    mytest;
+                    test_str loc2;
+                }
+
+            }
+
+            server {
+                listen 8080;
+
+                test_str server8080;
+                location /url3 {
+                    mytest;
+                    test_str loc3;
+                }
+            }
+        }
+
+
+        // 输出
+        下面的配置项都是存储在各个配置块(http、server、location)对应的create_loc_conf 生成的配置结构体中，因为定义command时，设置了test_str配置项存储的结构体为create_loc_conf 生成的配置结构体
+        nginx: [emerg] parent: null						http配置块中没有test_str配置项，所以为空
+        nginx: [emerg] child: server80 					server 80配置块中test_str配置
+        nginx: [emerg] after parent: null
+        nginx: [emerg] after child: server80
+        nginx: [emerg] parent: server80 				server 80配置块中test_str配置
+        nginx: [emerg] child: null						location /配置块中没有test_str配置项，所以为空
+        nginx: [emerg] after parent: server80
+        nginx: [emerg] after child: server80
+        nginx: [emerg] parent: server80 				server 80配置块中test_str配置
+        nginx: [emerg] child: apple						location /test配置块中test_str配置项
+        nginx: [emerg] after parent: server80
+        nginx: [emerg] after child: apple
+        nginx: [emerg] parent: server80   				server 80配置块中test_str配置
+        nginx: [emerg] child: loc1						location /url1配置块中test_str配置项
+        nginx: [emerg] after parent: server80
+        nginx: [emerg] after child: loc1
+        nginx: [emerg] parent: server80
+        nginx: [emerg] child: loc2
+        nginx: [emerg] after parent: server80
+        nginx: [emerg] after child: loc2
+        nginx: [emerg] parent: server80
+        nginx: [emerg] child: null
+        nginx: [emerg] after parent: server80
+        nginx: [emerg] after child: server80
+        nginx: [emerg] parent: null 					http配置块中没有test_str配置项，所以为空
+        nginx: [emerg] child: server8080				server 8080配置块中test_str配置
+        nginx: [emerg] after parent: null
+        nginx: [emerg] after child: server8080
+        nginx: [emerg] parent: server8080 				server 8080配置块中test_str配置
+        nginx: [emerg] child: loc3 						location /url3配置块中test_str配置项
+        nginx: [emerg] after parent: server8080
+        nginx: [emerg] after child: loc3
+     * */
 
     return NGX_CONF_OK;
 }
