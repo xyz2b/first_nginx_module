@@ -319,50 +319,51 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 
 #ifndef USER
     if (my_conf->my_str.len != 0) {
-        ngx_sprintf(ngx_my_str, "%s", my_conf->my_str.data);
-        ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_str: %s", ngx_my_str);
+//        ngx_sprintf(ngx_my_str, "%s", my_conf->my_str.data);
+        // %V对应的参数必须是ngx_str_t类型变量的地址，按照ngx_str_t.len长度输出ngx_str_t.data的字符串内容
+        ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_str: %V", &my_conf->my_str);
     }
 
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_flag: %d", my_conf->my_flag);
-//
-//    if (my_conf->my_str_array != NULL) {
-//        for (ngx_uint_t i = 0; i < my_conf->my_str_array->nelts; i++) {
-//            ngx_str_t* pstr = my_conf->my_str_array->elts;
-//            memset(ngx_my_str, 0, sizeof(ngx_my_str));
-//            ngx_sprintf(ngx_my_str, "%s", pstr[i].data);
-//            ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_str_array_%d: %s", i, ngx_my_str);
-//        }
-//    }
-//
-//    if (my_conf->my_keyval != NULL) {
-//        for (ngx_uint_t i = 0; i < my_conf->my_keyval->nelts; i++) {
-//            ngx_keyval_t* pkv = my_conf->my_keyval->elts;
-//            memset(ngx_my_str, 0, sizeof(ngx_my_str));
-//            ngx_sprintf(ngx_my_str, "%s", pkv[i].key.data);
-//            ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_keyval_%d_key: %s", i, ngx_my_str);
-//            memset(ngx_my_str, 0, sizeof(ngx_my_str));
-//            ngx_sprintf(ngx_my_str, "%s", pkv[i].value.data);
-//            ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_keyval_%d_value: %s", i, ngx_my_str);
-//        }
-//    }
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_flag: %d", my_conf->my_flag);
 
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_num: %d", my_conf->my_num);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_size: %d", my_conf->my_size);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_off: %d", my_conf->my_off);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_msec: %d", my_conf->my_msec);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_sec: %d", my_conf->my_sec);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_bufs: %d:%d", my_conf->my_bufs.num, my_conf->my_bufs.size);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_enum: %d", my_conf->my_enum_seq);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_bitmask: %d", my_conf->my_bitmask);
-//
-//    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_access: %d", my_conf->my_access);
+    if (my_conf->my_str_array != NULL) {
+        for (ngx_uint_t i = 0; i < my_conf->my_str_array->nelts; i++) {
+            ngx_str_t* pstr = my_conf->my_str_array->elts;
+            memset(ngx_my_str, 0, sizeof(ngx_my_str));
+            ngx_sprintf(ngx_my_str, "%s", pstr[i].data);
+            ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_str_array_%d: %s", i, ngx_my_str);
+        }
+    }
+
+    if (my_conf->my_keyval != NULL) {
+        for (ngx_uint_t i = 0; i < my_conf->my_keyval->nelts; i++) {
+            ngx_keyval_t* pkv = my_conf->my_keyval->elts;
+            memset(ngx_my_str, 0, sizeof(ngx_my_str));
+            ngx_sprintf(ngx_my_str, "%s", pkv[i].key.data);
+            ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_keyval_%d_key: %s", i, ngx_my_str);
+            memset(ngx_my_str, 0, sizeof(ngx_my_str));
+            ngx_sprintf(ngx_my_str, "%s", pkv[i].value.data);
+            ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_keyval_%d_value: %s", i, ngx_my_str);
+        }
+    }
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_num: %d", my_conf->my_num);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_size: %d", my_conf->my_size);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_off: %d", my_conf->my_off);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_msec: %d", my_conf->my_msec);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_sec: %d", my_conf->my_sec);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_bufs: %d:%d", my_conf->my_bufs.num, my_conf->my_bufs.size);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_enum: %d", my_conf->my_enum_seq);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_bitmask: %xd", my_conf->my_bitmask);
+
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "my_access: %d", my_conf->my_access);
 
     if (my_conf->my_path != NULL) {
         memset(ngx_my_str, 0, sizeof(ngx_my_str));
