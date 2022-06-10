@@ -2,9 +2,9 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+#define UPSTREAM 1
 
-
-#ifndef USER
+#ifdef NGX
 typedef struct {
     ngx_str_t   my_str;
     ngx_int_t   my_num;
@@ -30,7 +30,19 @@ typedef struct {
 } ngx_http_mytest_conf_t;
 #endif
 
-#ifndef USER
+#ifdef UPSTREAM
+// 从配置文件中解析的配置信息
+typedef struct {
+    ngx_http_upstream_conf_t upstream;
+} ngx_htt_mytest_conf_t;
+
+// 请求上下文，会放到请求对应的request结构体中
+typedef struct {
+    ngx_http_status_t   status; // process_header解析响应行时使用
+} ngx_http_mytest_ctx_t;
+#endif
+
+#ifdef NGX
 static ngx_conf_enum_t test_enums[] = {
         {ngx_string("apple"), 1},
         {ngx_string("banana"), 2},
@@ -52,8 +64,12 @@ static void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf);
 #ifdef USER
 static char* ngx_conf_set_myconfig(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 #endif
-#ifndef USER
+#ifdef NGX
 static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
+#endif
+#ifdef UPSTREAM
+static ngx_int_t mytest_upstream_create_request(ngx_http_request_t *r);
+static ngx_int_t mytest_process_status_line(ngx_http_request_t *r);
 #endif
 
 static ngx_command_t ngx_http_mytest_commands[] = {
@@ -65,7 +81,7 @@ static ngx_command_t ngx_http_mytest_commands[] = {
             0,
             NULL
         },
-#ifndef USER
+#ifdef NGX
         {
             ngx_string("test_flag"),
             NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
@@ -189,6 +205,32 @@ static ngx_command_t ngx_http_mytest_commands[] = {
             NULL
         },
 #endif
+#ifdef UPSTREAM
+        {
+            ngx_string("upstream_connect_timeout"),
+            NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+            ngx_conf_set_msec_slot,
+            NGX_HTTP_LOC_CONF_OFFSET,
+            offsetof(ngx_http_mytest_conf_t, upstream.connect_timeout),
+            NULL
+        },
+        {
+            ngx_string("upstream_send_timeout"),
+            NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+            ngx_conf_set_msec_slot,
+            NGX_HTTP_LOC_CONF_OFFSET,
+            offsetof(ngx_http_mytest_conf_t, upstream.send_timeout),
+            NULL
+        },
+        {
+            ngx_string("upstream_read_timeout"),
+            NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+            ngx_conf_set_msec_slot,
+            NGX_HTTP_LOC_CONF_OFFSET,
+            offsetof(ngx_http_mytest_conf_t, upstream.read_timeout),
+            NULL
+        },
+#endif
         ngx_null_command
 };
 
@@ -287,7 +329,7 @@ static ngx_http_module_t ngx_http_mytest_module_ctx = {
         NULL,                                           /* 6.merge server configuration */
 
         ngx_http_mytest_create_loc_conf,                /* 3.create location configuration */
-#ifndef USER
+#ifdef NGX
         ngx_http_mytest_merge_loc_conf                  /* 7.merge location configuration */
 #else
         NULL
@@ -311,13 +353,54 @@ ngx_module_t ngx_http_mytest_module = {
 
 static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 {
+#ifdef UPSTREAM
+    // 首先建立HTTP上下文结构体ngx_http_mytest_ctx_t
+    ngx_http_mytest_ctx_t *myctx = ngx_http_get_module_ctx(r, ngx_http_mytest_module);
+    if (myctx == NULL) {
+        myctx = ngx_palloc(r->pool, sizeof(ngx_http_mytest_ctx_t));
+        if (myctx == NULL) {
+            return NGX_ERROR;
+        }
+        // 将新建立的上下文与请求关联起来
+        ngx_http_set_ctx(r, myctx, ngx_http_mytest_module);
+    }
+    // 对每个要使用upstream的请求，必须调用且只能调用1次ngx_http_upstream_create方法，它会初始化r->upstream成员
+    if (ngx_http_upstream_create(r) != NGX_OK) {
+        ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "ngx_http_upstream_create failed");
+        return NGX_ERROR;
+    }
+
+    // 得到配置结构体ngx_http_mytest_conf_t
+    ngx_http_mytest_conf_t *mycf = ngx_http_get_module_loc_conf(r, ngx_http_mytest_module);
+    ngx_http_upstream_t *u = r->upstream;
+
+    // 设置upstream参数：将解析出来的配置文件中的upstream的参数赋值给请求中的upstream参数字段
+    u->conf = &mycf->upstream;
+
+    // 决定转发包体时使用的缓冲区
+    u->buffering = mycf->upstream.buffering;
+
+    // 设置upstream上游服务地址
+    // 初始化resolved结构体，用来保存上游服务地址
+
+    // 设置回调方法
+    r->upstream->create_request = mytest_upstream_create_request;
+    r->upstream->process_header = mytest_process_status_line;       // 将处理上游响应header分成了两部分处理，一部分是请求行，一部分是请求头，处理完请求行之后会调用处理请求头的方法
+    r->upstream->finalize_request = mytest_upstream_finalize_request;
+
+    // 启动upstream
+    r->main->count++;       // 告知HTTP框架将当前请求的引用计数加1，即告知HTTP框架暂时不要销毁请求，因为HTTP框架只有在请求引用计数为0时才能真正销毁请求
+    ngx_http_upstream_init(r);
+    return NGX_DONE;    // 通过返回NGX_DONE告知HTTP框架暂停执行请求的下一个阶段
+#endif
+
+#ifdef NGX
     u_char ngx_my_str[1024] = {0};
 
     ngx_http_mytest_conf_t *my_conf;
 
     my_conf = ngx_http_get_module_loc_conf(r, ngx_http_mytest_module);
 
-#ifndef USER
     if (my_conf->my_str.len != 0) {
 //        ngx_sprintf(ngx_my_str, "%s", my_conf->my_str.data);
         // %V对应的参数必须是ngx_str_t类型变量的地址，按照ngx_str_t.len长度输出ngx_str_t.data的字符串内容
@@ -376,6 +459,12 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 #endif
 
 #ifdef USER
+    u_char ngx_my_str[1024] = {0};
+
+    ngx_http_mytest_conf_t *my_conf;
+
+    my_conf = ngx_http_get_module_loc_conf(r, ngx_http_mytest_module);
+
     if (my_conf->my_config_str.len != 0) {
         memset(ngx_my_str, 0, sizeof(ngx_my_str));
         ngx_sprintf(ngx_my_str, "%s", my_conf->my_config_str.data);
@@ -386,6 +475,7 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 
 #endif
 
+#ifndef UPSTREAM
     // 如果请求方法不为GET或PUT，就返回 405 NOT_ALLOWED
     if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_HEAD))) {
         return NGX_HTTP_NOT_ALLOWED;
@@ -429,6 +519,7 @@ static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 
     // 发送响应body
     return ngx_http_output_filter(r, &out);
+#endif
 }
 
 static void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf)
@@ -440,7 +531,7 @@ static void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf)
         return NULL;
     }
 
-#ifndef USER
+#ifdef NGX
     // 如果使用nginx自带的解析参数的方法，必须按照下面进行各种类型参数值的初始化
     mycf->my_flag = NGX_CONF_UNSET;
     mycf->my_num = NGX_CONF_UNSET;
@@ -453,6 +544,24 @@ static void* ngx_http_mytest_create_loc_conf(ngx_conf_t* cf)
     mycf->my_enum_seq = NGX_CONF_UNSET;
     mycf->my_bitmask = 0;
     mycf->my_access = NGX_CONF_UNSET_UINT;
+#endif
+
+#ifdef UPSTREAM
+    mycf->upstream.connect_timeout = NGX_CONF_UNSET_MSEC;
+    mycf->upstream.send_timeout = NGX_CONF_UNSET_MSEC;
+    mycf->upstream.read_timeout = NGX_CONF_UNSET_MSEC;
+    mycf->upstream.store_access = 0600;
+
+    mycf->upstream.buffering = 0;
+    mycf->upstream.bufs.num = 8;
+    mycf->upstream.bufs.size = ngx_pagesize;
+    mycf->upstream.buffer_size = ngx_pagesize;
+    mycf->upstream.busy_buffers_size = 2 * ngx_pagesize;
+    mycf->upstream.temp_file_write_size = 2 * ngx_pagesize;
+    mycf->upstream.max_temp_file_size = 1024 * 1024 * 1024;
+
+    mycf->upstream.hide_headers = NGX_CONF_UNSET_PTR;
+    mycf->upstream.pass_headers = NGX_CONF_UNSET_PTR;
 #endif
 
     return mycf;
@@ -488,7 +597,7 @@ static char* ngx_conf_set_myconfig(ngx_conf_t *cf, ngx_command_t *cmd, void *con
 }
 #endif
 
-#ifndef USER
+#ifdef NGX
 static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
     u_char ngx_my_str[1024] = {0};
@@ -498,6 +607,7 @@ static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
     // child是保存子配置块的结构体
     ngx_http_mytest_conf_t *conf = (ngx_http_mytest_conf_t *) child;
 
+#ifdef NGX
     if (prev != NULL && prev->my_str.len > 0) {
         memset(ngx_my_str, 0, sizeof(ngx_my_str));
         ngx_sprintf(ngx_my_str, "%s", prev->my_str.data);
@@ -513,7 +623,6 @@ static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
     } else if (prev != NULL && conf->my_str.len == 0) {
         ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "child: null");
     }
-
 
     // 使用父配置块中的参数值替换子配置块中的参数值，如果父配置块和子配置块都没有解析到配置项，则将值设置为默认值"defaultstr"
     ngx_conf_merge_str_value(conf->my_str, prev->my_str, "defaultstr");
@@ -533,7 +642,18 @@ static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
     } else if (prev != NULL && conf->my_str.len == 0) {
         ngx_log_error(NGX_LOG_EMERG, cf->log, 0, "after child: null");
     }
+#endif
 
+#ifdef UPSTREAM
+    ngx_hash_init_t hash;
+    hash.max_size = 100;
+    hash.bucket_size = 1024;
+    hash.name = "proxy_headers_hash";
+    if (ngx_http_upstream_hide_headers_hash(cf, $conf->upstream, $prev->upstream, ngx_http_proxy_hide_headers, &hash) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+    return NGX_CONF_OK;
+#endif
     /**
      * http {
             server {
@@ -612,5 +732,62 @@ static char* ngx_http_mytest_merge_loc_conf(ngx_conf_t *cf, void *parent, void *
      * */
 
     return NGX_CONF_OK;
+}
+#endif
+
+#ifdef UPSTREAM
+// 创建上游请求
+static ngx_int_t mytest_upstream_create_request(ngx_http_request_t *r)
+{
+    // 发往baidu上游服务器的请求很简单，就是模仿正常的搜索请求，以/s?wd=...的URL格式来发起搜索请求。
+    static ngx_str_t backendQueryLine = ngx_string("GET /s?wd=%V HTTP/1.1\r\nHost:www.baidu.com\r\nConnection:close\r\n\r\n");
+    ngx_int_t queryLineLen = backendQueryLine.len + r->args.len - 2;  // 减去%V占位符的长度
+    /**
+     * 必须是在内存池中申请内存，这有以下两点好处:
+     * 1.在网络情况不佳的情况下，向上游服务器发送请求时，可能需要epoll多次调用send才能发送完成，这时必须保证这段内存不会被释放
+     * 2.在请求结束时，这段内存会被自动释放，降低内存泄露的可能
+     * */
+    ngx_buf_t* b = ngx_create_temp_buf(r->pool, queryLineLen);
+    if (b == NULL) {
+        return NGX_ERROR;
+    }
+    // last需要指向buf中请求行的末尾
+    b->last = b->pos + queryLineLen;
+    // 作用相当于snprintf，只是它支持ngx特殊的转换格式
+    ngx_snprintf(b->pos, queryLineLen, (char*)backendQueryLine.data, &r->args);
+    // r->upstream-request_bufs是一个ngx_chain_t结构，它包含着发送给上游服务器的请求
+    r->upstream->request_bufs = ngx_alloc_chain_link(r->pool);
+    if (r->upstream->request_bufs == NULL) {
+        return NGX_ERROR;
+    }
+    // request_bufs在这里只包含1个ngx_buf_t缓冲区
+    r->upstream->request_bufs->buf = b;
+    r->upstream->request_bufs->next = NULL;
+
+    r->upstream->request_sent = 0;
+    r->upstream->header_sent = 0;
+    // header_hash不可以为0
+    r->header_hash = 1;
+    return NGX_OK;
+
+}
+
+// 解析上游响应行
+static ngx_int_t mytest_process_status_line(ngx_http_request_t *r)
+{
+
+    return mytest_upstream_process_header(r);
+}
+
+// 解析上游响应头
+static ngx_int_t mytest_upstream_process_header(ngx_http_request_t *r)
+{
+
+}
+
+// 上游请求结束之后的收尾处理
+static void mytest_upstream_finalize_request(ngx_http_request_t *r, ngx_int_t rc)
+{
+    ngx_log_error(NGX_LOG_EMERG, r->connection->log, 0, "mytest_upstream_finalize_request");
 }
 #endif
