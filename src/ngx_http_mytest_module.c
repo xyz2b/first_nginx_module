@@ -393,6 +393,7 @@ ngx_module_t ngx_http_mytest_module = {
         NGX_MODULE_V1_PADDING
 };
 
+// 模块处理逻辑的主回调函数
 static ngx_int_t ngx_http_mytest_handler(ngx_http_request_t *r)
 {
 #ifdef UPSTREAM
