@@ -109,12 +109,24 @@ static ngx_command_t ngx_http_mytest_commands[] = {
             NULL
         },
         {
+            // 这里是配置项的名称
             ngx_string("test_str"),
+            // 这里是表明该配置项可以在哪些配置块中配置（三个配置块http、server、location）
             NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,  // 配置项可以出现在http、server、location配置块中，并有且仅有1个参数
+            // 配置项的解析函数
             ngx_conf_set_str_slot,
+            // 这里是表明该配置项的值是存储在对应配置块的哪个结构体里（三种结构体 main srv loc）
             NGX_HTTP_LOC_CONF_OFFSET,               // 将配置项存储在每个配置块(http、server、location)对应的 create_loc_conf 生成的配置结构体中
+            // 配置项解析出来之后存储到配置结构体的哪个位置上
             offsetof(ngx_http_mytest_conf_t, my_str),
+            // 调用解析函数传入的参数
             NULL
+            /**
+             * 比如test_str配置项
+                可以配置在http server location配置块中
+                解析到对应配置块中有配置该配置项就把该配置项的值存储到对应配置块的loc配置结构体中
+                如http配置块中有test_str配置项就把该配置项的值存储到http配置块的loc结构体中
+             * */
         },
         {
             ngx_string("test_str_array"),
@@ -336,6 +348,18 @@ static char* ngx_http_mytest(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
+/**
+ *
+    http配置块有 main srv loc三个配置结构体（解析到http配置块时，调用用户写的创建这三个配置结构体的回调方法创建的）
+    server配置块有src loc二个结构体
+    location配置块有loc一个结构体
+
+    合并配置项时 就是将父配置块对应配置结构体内对应配置项的值 和 子配置块相同配置结构体内对应的配置项的值进行合并
+
+    比如 merge_loc
+    比如当前配置块是server
+    就是将父配置块http中的loc结构体中的配置项 的值与子配置块server配置块中的loc结构体中的配置项的值进行合并（子配置块对应配置项为空就复用父配置块的值，不为空就用本配置块的值）
+ * */
 static ngx_http_module_t ngx_http_mytest_module_ctx = {
         NULL,                                           /* 4.preconfiguration */
         NULL,                                           /* 8.postconfiguration */
